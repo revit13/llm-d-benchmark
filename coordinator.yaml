@@ -1,0 +1,40 @@
+log_level: 5  # 2=info, 3=verbose, 4=debug, 5=trace; overridden by -v CLI flag
+
+server:
+  listen_addr: ":8080"
+  read_timeout: 30s
+  write_timeout: 120s
+
+# Coordinator runs as a local host process and reaches the rest of the
+# stack over `localhost`:
+#   - http://localhost:8090 -> nginx gateway (vllm-gateway container started
+#     by run_epd.sh) which fans out to localhost:8001/8002/8003 -- those are
+#     port-forwards to the encode/prefill/decode vLLM pods on the cluster.
+#   - http://localhost:8000 -> render container started by run_epd.sh.
+gateway:
+  address: "http://localhost:8090"
+  max_idle_conns_per_host: 100
+  idle_conn_timeout: 90s
+  timeout: 60s
+  use_openai_format: true    # env: COORDINATOR_GATEWAY_USE_OPENAI_FORMAT
+
+rendering_service:
+  address: "http://localhost:8000"
+
+pipeline:
+  kv_connector: nixlv2          # nixlv2 | shared_storage
+  ec_connector: shared_storage  # shared_storage | nixlv2
+  steps:
+    - type: replace-media-urls
+      params:
+        download_timeout: 10s
+        max_concurrent_downloads: 10
+    - type: render
+      params:
+        endpoint: "/v1/chat/completions/render"
+    #- type: conditional-decode
+    - type: encode
+      params:
+        max_parallel: 8
+    - type: prefill
+    - type: decode
